@@ -1,0 +1,7 @@
+[package]
+name = "annoyer"
+version = "0.1.0"
+authors = ["Rubén Caro <ruben.caro.estevez@gmail.com>"]
+edition = "2018"
+
+[dependencies]
