@@ -5,3 +5,7 @@ authors = ["Rubén Caro <ruben.caro.estevez@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+futures = "0.1"
+hyper = "0.12"
+clap = "~2.33"
+tokio = "0.1"
