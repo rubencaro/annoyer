@@ -4,9 +4,10 @@ extern crate clap;
 extern crate hyper;
 extern crate tokio;
 
-use futures::future::{ok, loop_fn, join_all, Future, FutureResult, Loop};
+use futures::future::{join_all, loop_fn, ok, Future, FutureResult, Loop};
 use std::io::Error;
 
+#[derive(Debug)]
 struct Client {
     ping_count: u8,
 }
@@ -17,7 +18,10 @@ impl Client {
     }
 
     fn send_ping(self) -> FutureResult<Self, Error> {
-        ok(Client { ping_count: self.ping_count + 1 })
+        println!("{:?}", self);
+        ok(Client {
+            ping_count: self.ping_count + 1,
+        })
     }
 
     fn receive_pong(self) -> FutureResult<(Self, bool), Error> {
@@ -35,12 +39,16 @@ fn main() {
              -c, --concurrency <number> 'Indicates the number of parallel workers'",
         )
         .get_matches();
+
     let concurrency = parse_u32(&matches, "concurrency", 10);
+    let url = parse_url(&matches, "url");
+    println!("url: {}", url);
 
     let mut parallel = Vec::new();
     for _i in 0..concurrency {
         let ping_til_done = loop_fn(Client::new(), |client| {
-            client.send_ping()
+            client
+                .send_ping()
                 .and_then(|client| client.receive_pong())
                 .and_then(|(client, done)| {
                     if done {
@@ -53,9 +61,9 @@ fn main() {
         parallel.push(ping_til_done);
     }
     let work = join_all(parallel).then(|res| {
-            res.unwrap();
-            ok(())
-        });
+        println!("{:?}", res);
+        ok(())
+    });
 
     tokio::run(work);
 }
@@ -67,6 +75,6 @@ fn parse_u32(matches: &clap::ArgMatches<'_>, name: &str, default: u32) -> u32 {
     })
 }
 
-// fn parse_url(matches: &clap::ArgMatches<'_>, name: &str) -> hyper::Uri {
-//     matches.value_of(name).unwrap().parse::<hyper::Uri>().unwrap()
-// }
+fn parse_url(matches: &clap::ArgMatches<'_>, name: &str) -> hyper::Uri {
+    matches.value_of(name).unwrap().parse::<hyper::Uri>().unwrap()
+}
