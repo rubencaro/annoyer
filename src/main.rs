@@ -6,7 +6,7 @@ extern crate tokio;
 
 use futures::future::{join_all, loop_fn, ok, Future, FutureResult, Loop};
 use std::io::Error;
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
 #[derive(Debug)]
@@ -29,34 +29,36 @@ impl Client {
     fn receive_pong(self, tx: Sender<&str>) -> FutureResult<(Self, bool), Error> {
         let done = self.ping_count >= 5;
         tx.send("hey").unwrap();
+        drop(tx);
         ok((self, done))
     }
 }
 
 fn main() {
-    let matches = clap::App::new("Annoyer")
-        .version("0.1.0")
-        .about("Annoying HTML load generator.")
-        .args_from_usage(
-            "-u, --url <string> 'The URL to be called'
-             -c, --concurrency <number> 'Indicates the number of parallel workers'",
-        )
-        .get_matches();
-
+    let matches = build_matches();
     let concurrency = parse_u32(&matches, "concurrency", 10);
     let url = parse_url(&matches, "url");
     println!("url: {}", url);
 
     let (tx, rx) = mpsc::channel();
+    let work = define_work(concurrency, tx);
+    let handler = thread::spawn(|| collector(rx));
 
+    tokio::run(work);
+    handler.join().unwrap();
+}
+
+fn define_work<'a>(
+    concurrency: u32,
+    tx: Sender<&'a str>,
+) -> Box<Future<Item = (), Error = ()> + Send + 'a> {
     let mut parallel = Vec::new();
     for _i in 0..concurrency {
-        let tx = tx.clone();
-        let ping_til_done = loop_fn(Client::new(), move |client| {
-            let tx = tx.clone();
-            client
-                .send_ping()
-                .and_then(|client| client.receive_pong(tx))
+        let tx2 = tx.clone();
+        let ping_til_done = loop_fn(Client::new(), move |c| {
+            let tx3 = tx2.clone();
+            c.send_ping()
+                .and_then(|client| client.receive_pong(tx3))
                 .and_then(|(client, done)| {
                     if done {
                         Ok(Loop::Break(client))
@@ -67,18 +69,23 @@ fn main() {
         });
         parallel.push(ping_til_done);
     }
-    let work = join_all(parallel).then(|res| {
+    drop(tx);
+
+    let all = join_all(parallel).then(|res| {
         println!("{:?}", res);
         ok(())
     });
 
-    thread::spawn(move || {
-        for r in rx {
-            println!("Got: {}", r);
-        }
-    });
+    Box::new(all)
+}
 
-    tokio::run(work);
+fn collector(rx: Receiver<&str>) {
+    let mut total = Client::new();
+    for r in rx {
+        total.ping_count += 1;
+        println!("Got: {}", r);
+        println!("Total: {:?}", total);
+    }
 }
 
 fn parse_u32(matches: &clap::ArgMatches<'_>, name: &str, default: u32) -> u32 {
@@ -94,4 +101,15 @@ fn parse_url(matches: &clap::ArgMatches<'_>, name: &str) -> hyper::Uri {
         .unwrap()
         .parse::<hyper::Uri>()
         .unwrap()
+}
+
+fn build_matches() -> clap::ArgMatches<'static> {
+    clap::App::new("Annoyer")
+        .version("0.1.0")
+        .about("Annoying HTML load generator.")
+        .args_from_usage(
+            "-u, --url <string> 'The URL to be called'
+             -c, --concurrency <number> 'Indicates the number of parallel workers'",
+        )
+        .get_matches()
 }
