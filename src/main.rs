@@ -16,7 +16,7 @@ fn main() {
     // Create the communication channel
     let (tx, rx) = mpsc::channel();
     // Build the client loop futures passing them the sending side of the channel
-    let work = client::build_client_loop(conf.concurrency, tx);
+    let work = client::build_client_loop(conf, tx);
     // Pass the receiving side to the stats collector and spawn it on a separate thread
     let handler = thread::spawn(|| collector::collect(rx));
     // Run the client loop futures
